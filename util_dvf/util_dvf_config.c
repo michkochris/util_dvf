@@ -8,6 +8,7 @@
 
 #include "util_dvf_portable.h"
 #include "util_dvf_config.h"
+#include "util_dvf_db.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,7 @@
 char *g_dvf_base_dir = NULL;
 char *g_dvf_config_path = NULL;
 char *g_dvf_install_dir = NULL;
+char *g_dvf_library_path = NULL;
 char *g_dvf_rpm_db_path = NULL;
 char *g_dvf_cache_dir = NULL;
 char *g_dvf_log_dir = NULL;
@@ -79,6 +81,9 @@ int util_dvf_config_init(const char *custom_config_path) {
         v = util_dvf_get_config_value(g_dvf_config_path, "install_dir");
         g_dvf_install_dir = v ? v : strdup("/usr");
 
+        v = util_dvf_get_config_value(g_dvf_config_path, "library_path");
+        g_dvf_library_path = v ? v : strdup("/srv/lib/util_dvf_dir/util_dvf_db");
+
         v = util_dvf_get_config_value(g_dvf_config_path, "rpm_db_path");
         g_dvf_rpm_db_path = v ? v : strdup("/var/lib/rpm");
 
@@ -92,26 +97,31 @@ int util_dvf_config_init(const char *custom_config_path) {
         g_dvf_repo_base_url = v ? v : strdup("https://download.fedoraproject.org/pub/fedora/linux/");
     } else {
         g_dvf_install_dir = strdup("/usr");
+        g_dvf_library_path = strdup("/srv/lib/util_dvf_dir/util_dvf_db");
         g_dvf_rpm_db_path = strdup("/var/lib/rpm");
         g_dvf_cache_dir = strdup("/var/cache/dvf");
         g_dvf_log_dir = strdup("/var/log/dvf");
         g_dvf_repo_base_url = strdup("https://download.fedoraproject.org/pub/fedora/linux/");
     }
 
-    return 0;
+    /* Automatically initialize binary database library path directory */
+    return util_dvf_db_init();
 }
 
 void util_dvf_config_cleanup(void) {
     free(g_dvf_config_path);
     free(g_dvf_install_dir);
+    free(g_dvf_library_path);
     free(g_dvf_rpm_db_path);
     free(g_dvf_cache_dir);
     free(g_dvf_log_dir);
     free(g_dvf_repo_base_url);
     g_dvf_config_path = NULL;
     g_dvf_install_dir = NULL;
+    g_dvf_library_path = NULL;
     g_dvf_rpm_db_path = NULL;
     g_dvf_cache_dir = NULL;
     g_dvf_log_dir = NULL;
     g_dvf_repo_base_url = NULL;
+    util_dvf_db_cleanup();
 }

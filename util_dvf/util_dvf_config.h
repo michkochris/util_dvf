@@ -21,6 +21,7 @@ extern "C" {
 extern char *g_dvf_base_dir;
 extern char *g_dvf_config_path;
 extern char *g_dvf_install_dir;
+extern char *g_dvf_library_path;
 extern char *g_dvf_rpm_db_path;
 extern char *g_dvf_cache_dir;
 extern char *g_dvf_log_dir;

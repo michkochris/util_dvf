@@ -1,7 +1,7 @@
 ﻿/******************************************************************************
  * Filename:    util_dvf_cli.c
  * Author:      <michkochris@gmail.com>
- * Date:        2026-03-04
+ * Date:        2026-03-04 (Synced)
  * Description: Interleaved command dispatcher with early --verbose tracing for util_dvf
  * LICENSE:     GPL v3
  ******************************************************************************/
@@ -10,6 +10,7 @@
 #include "util_dvf_cli.h"
 #include "util_dvf_config.h"
 #include "util_dvf_fsm.h"
+#include "util_dvf_db.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,7 @@ static void print_usage(const char *progname) {
     printf("  --print-config              Print all active path and repository settings\n");
     printf("  --print-config-file         Show the path to the configuration file in use\n");
     printf("Commands:\n");
+    printf("  sync                        Synchronize host RPM database state into local library cache\n");
     printf("  install <pkg>               Install RPM package\n");
     printf("  remove <pkg>                Remove RPM package\n");
     printf("  update [pkg]                Update RPM package(s)\n");
@@ -37,6 +39,7 @@ static void handle_print_config(void) {
     printf("=== util_dvf Active Configuration ===\n");
     printf("Config File Path : %s\n", g_dvf_config_path ? g_dvf_config_path : "(default / none)");
     printf("Install Dir      : %s\n", g_dvf_install_dir ? g_dvf_install_dir : "(null)");
+    printf("Library Path     : %s\n", g_dvf_library_path ? g_dvf_library_path : "(null)");
     printf("RPM DB Path      : %s\n", g_dvf_rpm_db_path ? g_dvf_rpm_db_path : "(null)");
     printf("Cache Dir        : %s\n", g_dvf_cache_dir ? g_dvf_cache_dir : "(null)");
     printf("Log Dir          : %s\n", g_dvf_log_dir ? g_dvf_log_dir : "(null)");
@@ -95,6 +98,7 @@ int util_dvf_dispatch_args(int argc, char **argv) {
 
     if (g_dvf_verbose_mode) {
         fprintf(stderr, "[DVF-CONFIG] Install Dir: %s\n", g_dvf_install_dir ? g_dvf_install_dir : "(null)");
+        fprintf(stderr, "[DVF-CONFIG] Library Path: %s\n", g_dvf_library_path ? g_dvf_library_path : "(null)");
         fprintf(stderr, "[DVF-CONFIG] RPM DB Path: %s\n", g_dvf_rpm_db_path ? g_dvf_rpm_db_path : "(null)");
         fprintf(stderr, "[DVF-CONFIG] Repo Base URL: %s\n", g_dvf_repo_base_url ? g_dvf_repo_base_url : "(null)");
     }
@@ -123,6 +127,17 @@ int util_dvf_dispatch_args(int argc, char **argv) {
         handle_print_config();
     } else if (strcmp(action, "print-config-file") == 0) {
         handle_print_config_file();
+    } else if (strcmp(action, "sync") == 0) {
+        if (g_dvf_verbose_mode) {
+            fprintf(stderr, "[DVF-SYNC] Starting host RPM database synchronization...\n");
+        }
+        if (util_dvf_sync_host_rpm_db() == 0) {
+            /* Handled in sync func */
+        } else {
+            fprintf(stderr, "[DVF-ERROR] Host RPM synchronization failed.\n");
+            util_dvf_config_cleanup();
+            return 1;
+        }
     } else if (strcmp(action, "install") == 0 || strcmp(action, "remove") == 0 || strcmp(action, "update") == 0) {
         DvfTransactionContext ctx;
         if (!target_pkg) {
