@@ -1,0 +1,6 @@
+﻿# /etc/dvf/dvfconfig - util_dvf configuration
+install_dir=/usr
+rpm_db_path=/var/lib/rpm
+cache_dir=/var/cache/dvf
+log_dir=/var/log/dvf
+repo_base_url=https://download.fedoraproject.org/pub/fedora/linux/
