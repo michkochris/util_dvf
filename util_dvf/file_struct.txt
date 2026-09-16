@@ -1,0 +1,68 @@
+we are going to need to add some uti dvf dev files, but which ones deserve its own file: [ zypherus /home/michko/util_dvf/util_dvf ]# ls
+
+config_map.txt   util_dvf_cli.c
+
+data_types.txt   util_dvf_cli.h
+
+dvfconfig        util_dvf_config.c
+
+fsm_map.txt      util_dvf_config.h
+
+Makefile         util_dvf_fsm.c
+
+starting.txt     util_dvf_fsm.h
+
+util_dvf_auto.c  util_dvf_portable.h
+
+util_dvf_auto.h
+
+[ zypherus /home/michko/util_dvf/util_dvf ]# 
+
+Looking at your current directory layout (util_dvf/), you already have a wonderfully disciplined, modular foundation set up. You've got your config (_config), CLI (_cli), autocompletion (_auto), FSM (_fsm), and portability layer (_portable.h).
+
+As you dive deeper into the RPM binary format, header parsing, CPIO payload extraction, and database tracking, certain components definitely deserve their own dedicated files rather than bloating what you already have.
+
+Here is how you should organize the next wave of development files for util_dvf:
+
+Recommended New Files & Where They Belong
+1. util_dvf_rpm.c & util_dvf_rpm.h (The RPM Header & Payload Parser)
+Why it deserves its own file: Parsing RPM lead structures, skipping magic numbers, reading binary header index entries, and walking the data store byte stream is complex enough to merit total isolation.
+
+What goes here: The low-level binary reading logic, raw header decoding into the DvfRawHeader structs, and the conversion routines that map raw RPM tags into your clean master DvfPkgInfo struct.
+
+2. util_dvf_cpio.c & util_dvf_cpio.h (The Payload Extractor)
+Why it deserves its own file: Unlike Debian .deb packages that use standard tar archives, RPMs use compressed cpio archives (often gzipped, xz, or zstd). Handling archive headers, symbolic links, hard links, and safe extraction paths requires specialized logic.
+
+What goes here: The streaming decompression interface, CPIO archive header parsing, and directory tree reconstruction routines.
+
+3. util_dvf_db.c & util_dvf_db.h (The Host & Local State Database Engine)
+Why it deserves its own file: Handling rpm_host=auto means dealing with SQLite or Berkeley DB files (rpmdb.sqlite) on the host system, plus managing your own high-speed binary databases (dvf_pkginfo.bin, matrix.bin).
+
+What goes here: Database querying logic, host synchronization bindings, and FNV-1a hash indexing for quick package lookups.
+
+4. util_dvf_resolver.c & util_dvf_resolver.h (The Dependency Graph Engine) # ! low level dependency worker compared to high level c++ FFI util_dvf_resolver.cpp
+Why it deserves its own file: RPM dependency resolution (matching Requires, Provides, Obsoletes, and Conflicts) is notoriously strict and can quickly clutter your FSM code if mixed together. and would benifit further by keeping a separete low level util_dvf_resolver.c compared to the high level dependency resolving of the extended c++ FFI features of repo sync and stuff...
+
+What goes here: Dependency tree calculation, conflict detection, and sorting packages into correct installation order. clandestine rpm sibling detection for installing series of local rpm pkg's...
+
+Updated Target Directory Structure
+When you're ready to expand, your util_dvf/ workspace will look like this—clean, highly structured, and completely modular:
+
+Plaintext
+util_dvf/
+├── Makefile
+├── dvfconfig
+├── config_map.txt
+├── data_types.txt
+├── fsm_map.txt
+├── starting.txt
+├── util_dvf_portable.h
+├── util_dvf_config.c / .h
+├── util_dvf_cli.c / .h
+├── util_dvf_auto.c / .h
+├── util_dvf_fsm.c / .h
+├── util_dvf_rpm.c / .h        <-- NEW: RPM Binary Header Parser
+├── util_dvf_cpio.c / .h       <-- NEW: CPIO Payload Extractor
+├── util_dvf_db.c / .h         <-- NEW: Host SQLite / Binary DB Sync
+└── util_dvf_resolver.c / .h   <-- NEW: Dependency Graph & Conflict Resolver
+By keeping util_dvf_rpm.c strictly isolated, you ensure that all the messy Fedora binary quirks stay contained in one place, leaving your FSM (util_dvf_fsm.c) clean and easy to reason about.

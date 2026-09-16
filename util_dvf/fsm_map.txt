@@ -1,0 +1,98 @@
+compared to runepkg command line options what would be util_dvf command line option that would plain text or text out, no need to weave into fsm? need to know to map around them?
+
+Here is the side-by-side mapping comparing runepkg’s clean command structure to its RPM/DNF counterpart, util_dvf, keeping everything focused purely on text output and local/query execution without getting bogged down in FSM internals yet.
+
+Command Line Option Mapping
+Category	runepkg (Debian / .deb)	util_dvf (dvf / RPM / .rpm)	Description / Ecosystem Adjustment
+Sync / State	sync	sync	Synchronize host RPM database state into local metadata.
+Install	-i, --install <deb>	-i, --install <rpm>	Install local .rpm files or repository packages.
+Remove	-r, --remove <pkg>	-r, --remove <pkg>	Remove an installed package from the RPM database.
+List Installed	-l, --list [pattern]	-l, --list [pattern]	List installed RPM packages (supports wildcards).
+Status / Query	-s, --status <pkg>	-s, --status <pkg>	Display detailed RPM header metadata for an installed package.
+List Files	-L, --list-files <pkg>	-L, --list-files <pkg>	List all files owned by an installed RPM package.
+File Search	-S, --search <file>	-S, --search <file>	Search installed packages to find which one owns a file (rpm -qf equivalent).
+Unpack Payload	-u, --unpack <deb>	-u, --unpack <rpm>	Unpack an RPM's underlying CPIO payload into build_dir.
+Integrity Check	-m, --md5check <pkg>	-m, --verify <pkg>	Verify package file integrity using RPM digital signatures / SHA digests.
+Forge / Build	-b, --build [dir] [deb]	-b, --build [dir] [rpm]	Forge an .rpm package from a compliant directory tree or spec.
+Repo Update	update	update	Synchronize RPM repository metadata (repomd.xml) and indices.
+Upgrade	upgrade	upgrade	Download and install available system upgrades from DNF repos.
+Repo Search	search <pattern>	search <pattern>	Search repository metadata for packages or descriptions.
+Package Info	info <pkg>	info <pkg>	Display remote repository metadata for a specific package.
+Download Only	download-only <pkg>	download-only <pkg>	Download a raw .rpm without resolving dependencies.
+Diagnostics	--print-config	--print-config	Print active path, root, and RPM/DNF repository settings.
+Autocomplete	--rebuild-autocomplete	--rebuild-autocomplete	Rebuild the local mmap binary name index for shell completion.
+Key Architectural Shifts to Keep in Mind for util_dvf:
+Payload Unpacking (-u): While runepkg extracts standard Debian ar/tar.xz payloads, util_dvf's unpacker has to handle RPM lead/header structures and extract compressed cpio payloads (gz, xz, zstd), which adds a bit of parser plumbing.
+
+Integrity/Verification (-m / --verify): RPM relies heavily on built-in header digests and GPG signatures rather than standalone md5sum text manifests, so the verify command mirrors RPM's native integrity checks.
+
+thats nice but what i really needed was only the commands that would not be needed to weave into fsm, the finate state machine is certain purpose failsafe in between certain operations, other operations are not even needed to send through the fsm, get me? because of the complexity of this i need to map my way easily around the funk the functions that require weaving through fsm? 
+
+Got it. You want a clean architectural firewall separating stateless, read-only queries and text-out diagnostics (which don't need to touch the FSM at all) from state-changing transactions (which require full FSM rigor and rollback protections).
+
+Here is the exact mapping of how to split your command functions to keep your code clean:
+
+Group 1: Non-FSM Commands (Pure Text-Out, Local Queries, & Diagnostics)
+These commands inspect existing data, print configuration settings, or rebuild local static indices. They do not modify system state or alter the package database, meaning zero FSM overhead is required.
+
+Configuration & Path Printing:
+
+--print-config (Outputs active paths/settings as text)
+
+--print-config-file (Shows path to config file)
+
+--print-pkglist-file (Shows autocomplete index paths)
+
+--print-autopool (Dumps autocomplete pool contents)
+
+Local Package Queries:
+
+-l, --list [pattern] (Lists installed packages)
+
+-s, --status <pkg> (Displays metadata for a specific installed package)
+
+-L, --list-files <pkg> (Lists files owned by an installed package)
+
+-S, --search <file-path> (Searches installed packages for a file match)
+
+Remote Repository Queries:
+
+search <pkg|pattern> (Queries local repo metadata cache for matching packages)
+
+info <pkg> (Displays remote repository metadata)
+
+Index Maintenance:
+
+--rebuild-autocomplete (Rebuilds the memory-mapped binary name index)
+
+--version / -h, --help (Displays CLI usage manual)
+
+Group 2: FSM-Required Commands (State-Changing & Transactional)
+These commands modify the filesystem, write to databases, resolve recursive dependencies, or alter system state. These must be routed through the FSM engine to guarantee atomicity and handle recovery if they fail halfway through.
+
+Database & State Synchronization:
+
+sync (Synchronizes host package database with system state)
+
+update (Pulls and indexes remote repository metadata)
+
+Installation & Removal:
+
+-i, --install <rpm> (Resolves, downloads, stages, and installs packages)
+
+-r, --remove <package-name> (Unlinks and purges an installed package)
+
+upgrade (Batch downloads and installs system upgrades)
+
+Staging & Building:
+
+-u, --unpack <rpm> (Extracts payloads into build directories)
+
+-b, --build [dir] [rpm] (Forges a new .rpm package)
+
+download-only / download-depends (Touches the network and disk caches, benefiting from transactional tracking)
+
+Why this split helps your code structure:
+In your CLI dispatcher (util_dvf_cli.c), you can handle Group 1 directly in simple handler functions that print to stdout and exit 0.
+
+For Group 2, the CLI dispatcher acts purely as a trigger that feeds arguments into util_dvf_fsm.c, letting the Finite State Machine take over the execution lifecycle (Resolving → Verifying → Executing → Committing).

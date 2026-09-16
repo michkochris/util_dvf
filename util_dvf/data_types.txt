@@ -1,0 +1,83 @@
+how exactly is dvf going to handle this zoo of data types, we know there should be a master pkginfo struct for later but maybe we need a master struct for the rpm header and info, easily inserting that data type into the fsm. we should intelligently plan out what kind of data type and data structure to use with these overly complex fedora rpm things? 
+
+Taming the absolute zoo of RPM data types is the single most important architectural hurdle in building util_dvf.
+
+Unlike a Debian .deb control file—which is just a friendly, plain-text key-value block wrapped in a tarball—an RPM header is a heavily serialized binary blob containing an index array, mixed data types (char, int8, int16, int32, int64, string, bin, string array), and an offset-based data store.
+
+To handle this cleanly without turning your codebase into a bloated mess, you need a Two-Tier Data Strategy: a low-level raw parser struct to chew through the binary format, and a clean, flattened master DvfPkgInfo struct as the single source of truth for the FSM.
+
+Tier 1: The Raw RPM Header Parser Structures (The Ingestion Layer)
+When dvf reads an RPM file, it has to parse the binary header structure (headerMinions / header lead-in and index entries). In C89, you want lean, fixed-size structs that map directly to the binary layout:
+
+Plaintext
+[ Raw RPM Header Binary Blob ]
+├── Header Index Entry Array (N entries)
+│   ├── Tag ID (4 bytes)       -> e.g., RPMTAG_NAME (1000)
+   ├── Data Type (4 bytes)    -> e.g., CHAR, INT32, STRING, BINARY, STRING_ARRAY
+   ├── Offset (4 bytes)       -> Position in the data store bytes
+   └── Count (4 bytes)        -> Number of items
+└── Data Store (Byte Stream)  -> Raw string buffers, integer arrays, etc.
+The C89 Raw Structures:
+C
+/* Represents a single RPM header index entry */
+typedef struct {
+    uint32_t tag;
+    uint32_t type;
+    uint32_t offset;
+    uint32_t count;
+} DvfHeaderIndexEntry;
+
+/* Represents the raw header container before extraction */
+typedef struct {
+    uint32_t index_count;
+    uint32_t store_size;
+    DvfHeaderIndexEntry *indices;
+    char *store_bytes;
+} DvfRawHeader;
+Tier 2: The Master DvfPkgInfo Struct (The Flattened Core)
+Just like you did with runepkg, you do not want your package manager or FSM dragging around raw RPM header pointers everywhere. Once the raw header is read, a parsing function extracts only the critical tags and populates your clean, master DvfPkgInfo struct.
+
+This struct serves as the unified payload that passes smoothly through your FSM states:
+
+C
+typedef struct {
+    char name[128];         /* RPMTAG_NAME */
+    char version[64];       /* RPMTAG_VERSION */
+    char release[64];       /* RPMTAG_RELEASE */
+    char arch[32];          /* RPMTAG_ARCH */
+    char epoch[16];         /* RPMTAG_EPOCH (often stringified for safety) */
+    
+    /* Dependency arrays (parsed from RPMTAG_REQUIRENAME / PROVIDES) */
+    char **requires;
+    int require_count;
+    
+    char **provides;
+    int provide_count;
+    
+    /* File payload tracking */
+    char **file_list;       /* RPMTAG_BASENAMES combined with DIRNAMES */
+    int file_count;
+    
+    /* Integrity & Location */
+    char checksum[128];     /* Header or payload SHA256 digest */
+    char source_rpm[256];   /* RPMTAG_SOURCERPM */
+    off_t payload_offset;   /* Byte offset where the compressed CPIO begins */
+    char compression_type[16]; /* "gzip", "xz", "zstd" */
+} DvfPkgInfo;
+How This Integrates Intelligently into the FSM
+By structuring the data this way, your Finite State Machine (util_dvf_fsm.c) doesn't need to know anything about how raw RPM binary blobs are formatted. The data flow becomes completely modular:
+
+STATE_IDLE → STATE_RESOLVING:
+The FSM reads a local .rpm or a repo index, calls the raw header parser to populate a temporary DvfRawHeader, and instantly flattens it into the master DvfPkgInfo struct.
+
+STATE_VERIFYING:
+The FSM checks the signatures, digests, and host dependencies using only the clean fields inside DvfPkgInfo (e.g., matching requires against the host sync database).
+
+STATE_EXECUTING:
+The FSM uses the payload_offset and compression_type from the master struct to stream the payload straight into the CPIO extraction engine.
+
+STATE_COMMITTED:
+The parsed data is serialized directly into your high-speed binary database (dvf_pkginfo.bin), mirroring the blazing-fast design of runepkg.
+
+Why this design wins:
+It completely isolates the messy, eccentric complexities of the Fedora RPM binary format into a single parser file. Once parsed, the rest of util_dvf deals exclusively with a clean, predictable, C89 master struct—keeping your FSM logic airtight and easy to debug.
